@@ -85,7 +85,8 @@ pub struct Animator<T>
 {
     values: Vec<AnimatedValue<T>>,
     duration: Duration,
-    start: Instant
+    start: Instant,
+    is_playing: bool
 }
 
 impl<T> Animator<T>
@@ -95,12 +96,13 @@ impl<T> Animator<T>
         values.iter().for_each(|value| value.validate());
 
         // start at the end
-        Self{values, duration, start: Instant::now() - duration}
+        Self{values, duration, start: Instant::now() - duration, is_playing: false}
     }
 
     pub fn reset(&mut self)
     {
         self.start = Instant::now();
+        self.is_playing = true;
     }
 
     pub fn reversed(&self) -> Self
@@ -114,7 +116,7 @@ impl<T> Animator<T>
         this
     }
 
-    pub fn animate(&self, animatable: &mut impl Animatable<T>) -> AnimationState
+    pub fn animate(&mut self, animatable: &mut impl Animatable<T>) -> AnimationState
     {
         let timepoint = (self.start.elapsed().as_secs_f32() / self.duration.as_secs_f32())
             .min(1.0);
@@ -139,6 +141,8 @@ impl<T> Animator<T>
 
         if timepoint >= 1.0
         {
+            self.is_playing = false;
+
             AnimationState::Over
         } else
         {
@@ -148,7 +152,7 @@ impl<T> Animator<T>
 
     pub fn is_playing(&self) -> bool
     {
-        self.start.elapsed() <= self.duration
+        self.is_playing
     }
 
     fn lerp(range: &RangeInclusive<f32>, a: f32) -> f32
