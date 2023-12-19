@@ -345,6 +345,7 @@ enum UiVariant
 // giga super big struct cuz im lazy
 struct Game
 {
+    aspect: f32,
     window_size: Point2<usize>,
     camera: Camera,
     controls: [bool; ControlName::LAST as usize],
@@ -558,6 +559,7 @@ impl Game
         ];
 
         let mut this = Self{
+            aspect,
             window_size,
             camera,
             controls,
@@ -662,7 +664,7 @@ impl Game
             let create_tile = self.pressed(ControlName::CreateTile);
             if create_tile || self.pressed(ControlName::DeleteTile)
             {
-                let tile_pos = self.pos_to_tile(self.mouse_pos);
+                let tile_pos = self.screen_to_pos(self.mouse_pos);
 
                 if create_tile
                 {
@@ -748,10 +750,7 @@ impl Game
             },
             Event::MouseButtonDown{which: button, x, y, ..} =>
             {
-                let window_size = self.window_size.map(|x| x as f32);
-
-                let mut pos = Point2::new(x as f32, y as f32) / window_size;
-                pos.y = 1.0 - pos.y;
+                let pos = self.screen_to_local(Point2{x, y});
 
                 // thats kinda cool i think thats a cool way to use pattern matching
                 if let (0, Some(ui_event)) = (button, self.ui.click(pos))
@@ -833,6 +832,14 @@ impl Game
         true
     }
 
+    fn tile_size(&self) -> Point2<f32>
+    {
+        let mut size = Point2::repeat(1.0 / self.camera.height);
+        size.x /= self.aspect;
+
+        size
+    }
+
     fn draw_scene(&self, scene: &Scene)
     {
         for (pos, tile) in scene.iter()
@@ -842,7 +849,7 @@ impl Game
                 continue;
             }
 
-            let size = Point2::repeat(1.0 / self.camera.height);
+            let size = self.tile_size();
 
             let mut pos = self.pos_to_view(pos);
             pos.y = 1.0 - pos.y - size.y;
@@ -871,23 +878,33 @@ impl Game
         }
     }
 
-    fn pos_to_tile(&self, pos: Point2<i32>) -> Point2<i32>
+    fn screen_to_local(&self, pos: Point2<i32>) -> Point2<f32>
     {
         let mut pos = pos.map(|x| x as f32) / self.window_size.map(|x| x as f32);
         pos.y = 1.0 - pos.y;
 
+        pos
+    }
+
+    fn screen_to_pos(&self, pos: Point2<i32>) -> Point2<i32>
+    {
+        let pos = self.screen_to_local(pos);
+
         let scaled_pos = self.camera.pos / self.camera.height as f32;
 
-        let f_pos = (pos + scaled_pos - 0.5) * self.camera.height as f32;
+        let f_pos = (pos + scaled_pos - 0.5) / self.tile_size();
 
         f_pos.map(|x| x.floor() as i32)
     }
 
+    fn pos_to_screen(&self, pos: Point2<i32>) -> Point2<f32>
+    {
+        pos.map(|x| x as f32) * self.tile_size()
+    }
+
     fn pos_to_view(&self, pos: Point2<i32>) -> Point2<f32>
     {
-        let pos = pos.map(|x| x as f32) / self.camera.height as f32;
-
-        pos - (self.camera.pos / self.camera.height as f32) + 0.5
+        self.pos_to_screen(pos) - (self.camera.pos / self.camera.height as f32) + 0.5
     }
 
     fn print_current_scene(&self)
