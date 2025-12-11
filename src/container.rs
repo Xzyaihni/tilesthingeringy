@@ -97,6 +97,11 @@ impl<T> Container2d<T>
     {
         let data = (0..(size.x * size.y)).map(|_| T::default()).collect();
 
+        Self::from_data(size, data)
+    }
+
+    pub fn from_data(size: Point2<usize>, data: Box<[T]>) -> Self
+    {
         let indexer = Indexer::new(size);
 
         Self{data, indexer, size}
@@ -107,13 +112,13 @@ impl<T> Container2d<T>
         &self.size
     }
 
-    pub fn iter(&self) -> Iter<T>
+    pub fn iter(&self) -> Iter<'_, T>
     {
         Iter::new(self.data.iter(), self.indexer.clone())
     }
 
     #[allow(dead_code)]
-    pub fn iter_mut(&mut self) -> IterMut<T>
+    pub fn iter_mut(&mut self) -> IterMut<'_, T>
     {
         IterMut::new(self.data.iter_mut(), self.indexer.clone())
     }

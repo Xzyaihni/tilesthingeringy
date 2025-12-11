@@ -122,7 +122,7 @@ impl UiElementInner
         Rc::new(RefCell::new(Self{
             parent,
             element: UiElementGlobal{
-                
+
                 global_size: element.size,
                 global_pos: element.pos,
                 inner: element
@@ -150,7 +150,7 @@ impl UiElementInner
     {
         let mut child = self.children[id].borrow_mut();
         let this = &mut self.element;
-        
+
         {
             let child = &mut child.element;
 
@@ -359,7 +359,7 @@ impl Ui
     where
         F: FnMut(&ElementId, &UiElementGlobal)
     {
-        self.try_for_each_element(|id, element|
+        let _ = self.try_for_each_element(|id, element|
         {
             f(id, element);
 

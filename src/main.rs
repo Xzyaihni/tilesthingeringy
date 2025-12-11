@@ -1,6 +1,7 @@
 use std::{
     fs,
     mem,
+    env,
     iter,
     thread,
     rc::Rc,
@@ -188,7 +189,7 @@ enum ControlName
 
 const FPS: usize = 60;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TextureId(usize);
 
 pub struct Assets
@@ -258,6 +259,12 @@ impl Assets
 
     pub fn texture_id(&self, name: impl AsRef<Path>) -> TextureId
     {
+        if !self.texture_ids.contains_key(name.as_ref())
+        {
+            eprintln!("couldnt find texture named: {}", name.as_ref().display());
+            return TextureId(0);
+        }
+
         TextureId(self.texture_ids[name.as_ref()])
     }
 
@@ -354,6 +361,8 @@ struct Game
     current_tile: Tile,
     window: Rc<RefCell<GameWindow>>,
     assets: Rc<RefCell<Assets>>,
+    save_button: ElementId,
+    load_button: ElementId,
     next_scene_button: ElementId,
     prev_scene_button: ElementId,
     current_tile_button: ElementId,
@@ -405,19 +414,28 @@ impl Game
             assets.borrow().tile_texture_id(tile)
         };
 
-        let next_scene_button = ui.push(UiElement{
-            kind: UiElementType::Button,
-            pos: Point2::new(1.0 - 0.08, 1.0 - (0.07 * aspect)),
-            size: Point2::new(0.08, 0.07 * aspect),
-            texture: texture_id("ui/plus.png")
-        });
+        let mut current_offset = 0.0;
+        let mut count = 1;
+        let mut add_button = |name, offset|
+        {
+            let id = ui.push(UiElement{
+                kind: UiElementType::Button,
+                pos: Point2::new(1.0 - (0.08 * count as f32) - offset - current_offset, 1.0 - (0.07 * aspect)),
+                size: Point2::new(0.08, 0.07 * aspect),
+                texture: texture_id(name)
+            });
 
-        let prev_scene_button = ui.push(UiElement{
-            kind: UiElementType::Button,
-            pos: Point2::new(1.0 - (0.08 * 2.0) - 0.02, 1.0 - (0.07 * aspect)),
-            size: Point2::new(0.08, 0.07 * aspect),
-            texture: texture_id("ui/minus.png")
-        });
+            count += 1;
+            current_offset += offset;
+
+            id
+        };
+
+        let save_button = add_button("ui/save.png", 0.0);
+        let load_button = add_button("ui/load.png", 0.02);
+
+        let next_scene_button = add_button("ui/plus.png", 0.04);
+        let prev_scene_button = add_button("ui/minus.png", 0.02);
 
         let current_tile_button;
         {
@@ -566,6 +584,8 @@ impl Game
             scenes,
             current_scene: 0,
             current_tile,
+            save_button,
+            load_button,
             next_scene_button,
             prev_scene_button,
             current_tile_button,
@@ -621,7 +641,12 @@ impl Game
     fn single_frame(&mut self) -> bool
     {
         let window = self.window.clone();
-        for event in window.borrow_mut().events.poll_iter()
+        let next_event = ||
+        {
+            window.borrow_mut().events.poll_event()
+        };
+
+        while let Some(event) = next_event()
         {
             if !self.on_event(event)
             {
@@ -757,7 +782,13 @@ impl Game
                 {
                     let id = ui_event.element_id;
 
-                    if id == self.next_scene_button
+                    if id == self.save_button
+                    {
+                        self.save_scene();
+                    } else if id == self.load_button
+                    {
+                        self.load_scene();
+                    } else if id == self.next_scene_button
                     {
                         self.current_scene += 1;
 
@@ -912,6 +943,115 @@ impl Game
         println!("current scene: {}", self.current_scene);
     }
 
+    fn save_scene(&self)
+    {
+        let window = self.window.borrow();
+
+        let assets = window.assets.borrow();
+
+        let mut sorted_tiles = assets.tiles.iter().map(|x|
+        {
+            (x, assets.texture_ids.iter().find(|(_key, value)| **value == x.0).unwrap().0)
+        }).collect::<Vec<_>>();
+
+        sorted_tiles.sort_by_key(|x| x.1);
+
+        let tile_ids: HashMap<TextureId, usize> = sorted_tiles.iter().enumerate().map(|(index, (id, _name))|
+        {
+            (**id, index)
+        }).collect();
+
+        let mut output = String::new();
+
+        let scene = &self.scenes[self.current_scene].container;
+
+        let size = scene.size();
+        output += &size.x.to_string();
+        output += "x";
+        output += &size.y.to_string();
+
+        output += "\n";
+
+        sorted_tiles.iter().for_each(|(_, tile)|
+        {
+            output += &tile.to_string_lossy();
+            output += "\n";
+        });
+
+        scene.iter().enumerate().for_each(|(index, (_pos, tile_id))|
+        {
+            if index != 0
+            {
+                output += " ";
+            }
+
+            let tile_texture = assets.tile_texture_id(*tile_id);
+
+            output += &tile_ids[&tile_texture].to_string();
+        });
+
+        fs::write("scene.save", &output).unwrap_or_else(|err|
+        {
+            eprintln!("{output}\n\nerror saving scene: {err}");
+        });
+    }
+
+    fn load_scene(&mut self)
+    {
+        let window = self.window.borrow();
+
+        let assets = window.assets.borrow();
+
+        let scene_info = fs::read_to_string("scene.save").unwrap_or_else(|err|
+        {
+            eprintln!("error loading scene: {err}");
+
+            String::new()
+        });
+
+        if scene_info.is_empty()
+        {
+            return;
+        }
+
+        let mut lines = scene_info.lines();
+
+        let size = {
+            let size_text = lines.next().unwrap();
+
+            let mut fields = size_text.split('x');
+
+            let x: usize = fields.next().unwrap().parse().unwrap();
+            let y: usize = fields.next().unwrap().parse().unwrap();
+
+            Point2{x, y}
+        };
+
+        let lines: Vec<_> = lines.collect();
+        let last_line = lines.len().saturating_sub(1);
+
+        let tiles: Vec<Tile> = lines.iter().enumerate().filter_map(|(id, name)|
+        {
+            if id == last_line { return None; }
+
+            let texture_id = assets.texture_id(&PathBuf::from(name));
+            let tile_id = assets.tiles.iter().position(|x| *x == texture_id).map(|x| x + 1).unwrap_or(0);
+
+            Some(Tile(tile_id))
+        }).collect();
+
+        let data = lines.last().unwrap();
+
+        let tiles: Box<[Tile]> = data.split(' ').map(|x|
+        {
+            let id: usize = x.parse().unwrap();
+
+            tiles[id]
+        }).collect();
+
+        self.scenes[self.current_scene].container = Container2d::from_data(size, tiles);
+    }
+
     fn pressed(&self, control: ControlName) -> bool
     {
         self.controls[control as usize]
@@ -930,7 +1070,9 @@ fn main()
         let window = window.borrow_mut();
         let mut assets = window.assets.borrow_mut();
 
-        fs::read_dir("tiles").unwrap().into_iter().inspect(|_| tiles_amount += 1)
+        let tiles_directory = env::var("TILES_TEXTURES").unwrap_or_else(|_| "tiles".to_owned());
+
+        fs::read_dir(tiles_directory).unwrap().into_iter().inspect(|_| tiles_amount += 1)
             .zip(iter::repeat(true))
             .chain(fs::read_dir("ui").unwrap().into_iter().zip(iter::repeat(false)))
             .map(|(entry, is_tile)| (entry.unwrap(), is_tile))
