@@ -990,7 +990,12 @@ impl Game
             output += &tile_ids[&tile_texture].to_string();
         });
 
-        fs::write("scene.save", &output).unwrap_or_else(|err|
+        let scene_path = env::var("SAVE_PATH").or_else(|_|
+        {
+            env::var("SCENE_PATH")
+        }).unwrap_or_else(|_| "scene.save".to_owned());
+
+        fs::write(scene_path, &output).unwrap_or_else(|err|
         {
             eprintln!("{output}\n\nerror saving scene: {err}");
         });
@@ -1002,7 +1007,12 @@ impl Game
 
         let assets = window.assets.borrow();
 
-        let scene_info = fs::read_to_string("scene.save").unwrap_or_else(|err|
+        let scene_path = env::var("LOAD_PATH").or_else(|_|
+        {
+            env::var("SCENE_PATH")
+        }).unwrap_or_else(|_| "scene.save".to_owned());
+
+        let scene_info = fs::read_to_string(scene_path).unwrap_or_else(|err|
         {
             eprintln!("error loading scene: {err}");
 
